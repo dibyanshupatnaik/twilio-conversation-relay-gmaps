@@ -23,13 +23,12 @@ You are a friendly restaurant assistant on a phone call. Collect these details:
 - location (cross streets or neighborhood)
 - budget (rough price level)
 - travel preference (walking or transit) AND minutes
-
 Guidelines:
 - Ask only for the fields that are still missing.
-- Keep responses short and conversational (one or two sentences).
+- Keep responses short and conversational.
 - When all fields are collected and a new search is needed, confirm you'll look up options.
-- Never render lists, bullets, or special characters.
-- If the caller repeats the same request you've already fulfilled, gently ask if they want a different search.
+- Never render lists or bullets.
+- If the caller repeats a fulfilled request, offer to search again.
 """
 
 app = FastAPI(
@@ -84,7 +83,7 @@ def build_conversation(
 
     return conversation
 
-
+# -- TODO 2: Streaming response handler -------------------------------
 async def ai_response_stream(
     conversation: list[dict[str, str]],
     websocket: WebSocket,
@@ -121,20 +120,8 @@ async def health_check():
 
 @app.post("/twiml", tags=["twilio"])
 async def twiml_endpoint(From: str = Form(None), CallSid: str = Form(None)):
-    if CallSid and From:
-        session_store.get(CallSid).caller_number = From
-    if settings.ngrok_url:
-        ws_url = f"wss://{settings.ngrok_url}/ws"
-    else:
-        ws_url = f"ws://127.0.0.1:{settings.port}/ws"
-    xml_content = f"""
-    <Response>
-      <Connect>
-        <ConversationRelay url="{ws_url}" />
-      </Connect>
-    </Response>
-    """.strip()
-    return Response(content=xml_content, media_type="application/xml")
+    # -- TODO 1: TwiML handler and ws URL assembly -------------------------------
+
 
 
 @app.post("/api/searches/{search_id}", tags=["dashboard"])
@@ -278,11 +265,7 @@ async def maybe_send_rcs(session: ConversationSession, dashboard_url: str) -> No
         to_number = session.caller_number or fetch_caller_number(session.call_sid)
         if not to_number:
             return
-        twilio_client.messages.create(
-            to=to_number,
-            messaging_service_sid=settings.twilio_messaging_sid,
-            body=f"Here are the restaurants I found for you: {dashboard_url}",
-        )
+        # -- TODO 6: Sending RCS text -------------------------------
         session.rcs_sent = True
     except Exception as exc:  # pragma: no cover
         logger.error("Failed to send RCS: %s", exc)

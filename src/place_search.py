@@ -30,7 +30,6 @@ FIELD_MASK = ",".join(
 
 DEFAULT_TRAVEL_MINUTES = 15
 
-
 def geocode_location(location: str) -> Tuple[Optional[float], Optional[float]]:
     params = {"address": location, "key": settings.google_places_api_key}
     response = requests.get(GOOGLE_GEOCODE_URL, params=params, timeout=10)
@@ -40,6 +39,7 @@ def geocode_location(location: str) -> Tuple[Optional[float], Optional[float]]:
         return None, None
     geometry = results[0]["geometry"]["location"]
     return geometry.get("lat"), geometry.get("lng")
+
 
 
 def build_location_bias(lat: float, lng: float, travel_mode: str, minutes: int) -> Dict:
@@ -140,43 +140,7 @@ def search_restaurants(slots: Dict[str, Optional[str]]) -> Dict[str, object]:
 def rank_places(
     places: List[Dict], travel_mode: str, travel_minutes: int, lat: Optional[float], lng: Optional[float]
 ) -> List[Dict]:
-    ranked: List[Dict] = []
-    for place in places:
-        rating = place.get("rating") or 0
-        reviews = place.get("userRatingCount") or 0
-        score = rating * 2
-        if reviews > 100:
-            score += 0.5
-        elif reviews < 10:
-            score -= 0.5
-        place_copy = {
-            "name": place.get("displayName", {}).get("text", "Unknown"),
-            "address": place.get("formattedAddress", "Address unavailable"),
-            "rating": rating,
-            "user_rating_count": reviews,
-            "price_level": place.get("priceLevel"),
-            "score": score,
-        }
-        if lat and lng and place.get("location"):
-            duration = compute_travel_duration(
-                lat,
-                lng,
-                place["location"].get("latitude"),
-                place["location"].get("longitude"),
-                travel_mode,
-            )
-            if duration:
-                duration_seconds = duration.get("duration_seconds")
-                if (
-                    duration_seconds is not None
-                    and duration_seconds > travel_minutes * 60
-                ):
-                    continue
-                place_copy["travel"] = duration
-        ranked.append(place_copy)
-
-    ranked.sort(key=lambda item: item["score"], reverse=True)
-    return ranked
+    # -- TODO 4: Ranking algorithm -------------------------------
 
 
 def compute_travel_duration(
@@ -215,27 +179,4 @@ def compute_travel_duration(
 
 
 def format_voice_summary(top_places: List[Dict], slots: Dict[str, Optional[str]]) -> str:
-    if not top_places:
-        return "I couldn't find matching restaurants. Want to try a different search?"
-
-    intro = ""
-    if len(top_places) == 1:
-        intro = "I found one spot you might like. "
-    elif len(top_places) == 2:
-        intro = "Here are two places that fit what you asked for. "
-    else:
-        intro = "Here are the top three I found. "
-
-    lines: List[str] = []
-    for idx, place in enumerate(top_places, start=1):
-        parts = [f"Number {idx}, {place['name']}"]
-        if place.get("rating"):
-            parts.append(f"rated {place['rating']} stars")
-        if place.get("travel") and place["travel"].get("duration_text"):
-            parts.append(f"about {place['travel']['duration_text']} away")
-        lines.append(", ".join(parts) + ".")
-
-    prompt = (
-        "Want more details on any of these, or should I send the list to your phone?"
-    )
-    return intro + " ".join(lines) + " " + prompt
+    # -- TODO 5: Voice summary -------------------------------

@@ -5,18 +5,6 @@ from typing import Dict, Optional
 
 from .clients import openai_client
 
-FIELD_SPECS = [
-    ("cuisine", "string"),
-    ("location", "string (cross streets or neighborhood)"),
-    ("budget", "string ($, $$, $$$, $$$$)"),
-    ("travel_mode", 'string ("walking" or "transit")'),
-    ("travel_minutes", "integer minutes of travel time"),
-    ("open_now", "boolean"),
-    ("open_until", "string time like 10PM"),
-]
-
-FIELD_NAMES = [name for name, _ in FIELD_SPECS]
-
 FOLLOW_UP_PROMPTS = {
     "cuisine": "What kind of food are you craving?",
     "location": "Where should I search for restaurants?",
@@ -25,18 +13,13 @@ FOLLOW_UP_PROMPTS = {
     "travel_minutes": "How many minutes are you comfortable traveling?",
 }
 
+
+# -- TODO 3: Extracting Slots using LLM -------------------------------
+FIELD_SPECS = [
+]
+
 SYSTEM_INSTRUCTION = """
-Extract structured fields from the caller's request.
-
-Rules:
-- Always return a JSON object with exactly these keys: cuisine, location, budget, travel_mode, travel_minutes, open_now, open_until.
-- Use null for any value you cannot confirm from the request.
-- travel_minutes must be a number (convert written numbers like "ten" to the integer 10).
-- travel_mode must be "walking" or "transit".
-- budget should be $, $$, $$$, or $$$$.
-- Preserve the most recent caller preference even if they correct themselves.
 """
-
 
 def extract_slots(
     utterance: str, previous: Dict[str, Optional[str]] | None = None
