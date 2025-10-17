@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 import time
 import uuid
 from typing import Dict, List, Optional, Tuple
@@ -7,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 from .settings import settings
+
+logger = logging.getLogger("conversationrelay-minimal")
 
 GOOGLE_PLACES_BASE = "https://places.googleapis.com/v1"
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
@@ -23,6 +27,8 @@ FIELD_MASK = ",".join(
         "places.location",
     ]
 )
+
+DEFAULT_TRAVEL_MINUTES = 15
 
 
 def geocode_location(location: str) -> Tuple[Optional[float], Optional[float]]:
@@ -67,9 +73,9 @@ def search_restaurants(slots: Dict[str, Optional[str]]) -> Dict[str, object]:
     budget = slots.get("budget")
     travel_mode = slots.get("travel_mode") or "walking"
     try:
-        travel_minutes = int(slots.get("travel_minutes") or 15)
+        travel_minutes = int(slots.get("travel_minutes") or DEFAULT_TRAVEL_MINUTES)
     except (TypeError, ValueError):
-        travel_minutes = 15
+        travel_minutes = DEFAULT_TRAVEL_MINUTES
 
     lat, lng = geocode_location(location_text)
     location_bias = None
@@ -91,6 +97,7 @@ def search_restaurants(slots: Dict[str, Optional[str]]) -> Dict[str, object]:
         body["locationBias"] = location_bias
     if slots.get("open_now") == "true":
         body["openNow"] = True
+    logger.info("Google Places request body: %s", json.dumps(body, indent=2))
 
     headers = {
         "Content-Type": "application/json",
@@ -159,6 +166,12 @@ def rank_places(
                 travel_mode,
             )
             if duration:
+                duration_seconds = duration.get("duration_seconds")
+                if (
+                    duration_seconds is not None
+                    and duration_seconds > travel_minutes * 60
+                ):
+                    continue
                 place_copy["travel"] = duration
         ranked.append(place_copy)
 
@@ -195,6 +208,7 @@ def compute_travel_duration(
         return {
             "distance_text": element["distance"]["text"],
             "duration_text": element["duration"]["text"],
+            "duration_seconds": element["duration"]["value"],
         }
     except (KeyError, IndexError):
         return None

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8080, env="PORT")
     ngrok_url: Optional[str] = Field(default=None, env="NGROK_URL")
 
+    openai_api_key: str = Field(env="OPENAI_API_KEY")
     google_places_api_key: str = Field(env="GOOGLE_PLACES_API_KEY")
 
     twilio_account_sid: str = Field(env="TWILIO_ACCOUNT_SID")

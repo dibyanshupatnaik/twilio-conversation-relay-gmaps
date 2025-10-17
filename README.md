@@ -9,6 +9,7 @@ This starter lifts only the essential pieces from the full ConversationRelay pro
 - Twilio account with the ConversationRelay beta enabled
 - Google Cloud project with Places API (New), Geocoding API, Distance Matrix API, and Directions API enabled
 - ngrok (or another public tunnel) for exposing the local server
+- OpenAI API key with access to GPT-4o-mini (or compatible) for streaming responses
 - MongoDB is **not** required; results are kept in memory for simplicity
 
 ## 2. Setup
@@ -25,6 +26,7 @@ Populate `.env` with the following keys:
 ```env
 PORT=8080
 NGROK_URL=your-subdomain.ngrok-free.app   # no protocol
+OPENAI_API_KEY=sk-...
 GOOGLE_PLACES_API_KEY=AIza...
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
@@ -42,9 +44,9 @@ Configure your Twilio phone number’s Voice webhook to `https://<NGROK_URL>/twi
 
 ## 4. Whats Included
 
-- `src/main.py` – FastAPI app with `/twiml`, `/ws`, `/dashboard/{id}`, `/health`, and `/api/searches/{id}` endpoints.
+- `src/main.py` – FastAPI app with `/twiml`, `/ws`, `/dashboard/{id}`, `/health`, and `/api/searches/{id}` endpoints, plus `ai_response_stream` for OpenAI-powered prompts.
 - `src/session.py` – Holds per-call slot data, last search signature, and caller metadata.
-- `src/slot_extractor.py` – Deterministic heuristics to capture cuisine, location, budget, travel mode, and timing from user speech.
+- `src/slot_extractor.py` – LLM-powered slot extraction that converts spoken phrases (e.g., "ten minutes") into structured fields for downstream APIs.
 - `src/place_search.py` – Google Places and Geocoding helpers plus simple ranking and voice formatting.
 - `src/dashboard.py` – Renders HTML for the shared dashboard view.
 - `static/dashboard.css` – Minimal styling for the dashboard page.
@@ -52,7 +54,7 @@ Configure your Twilio phone number’s Voice webhook to `https://<NGROK_URL>/twi
 ## 5. Call Flow Overview
 
 1. `/twiml` instructs Twilio to open a ConversationRelay WebSocket at `/ws` with a friendly greeting.
-2. The WebSocket collects user input via the `slot_extractor`, prompting for missing fields.
+2. The WebSocket collects user input via `slot_extractor`, while `ai_response_stream` (OpenAI) asks for missing fields in natural language.
 3. Once cuisine, location, budget, travel mode, and travel time are set, a search request hits the Google Places API (New).
 4. Results are stored in memory and summarized; the caller hears the top options, and an SMS/RCS is sent with a dashboard link.
 5. The dashboard (served from `/dashboard/{search_id}`) shows the results for later reference.

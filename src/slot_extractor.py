@@ -1,182 +1,100 @@
 from __future__ import annotations
 
-import re
-from typing import Dict, Optional, Tuple
+import json
+from typing import Dict, Optional
 
-CUISINE_KEYWORDS = {
-    "thai",
-    "indian",
-    "mexican",
-    "japanese",
-    "chinese",
-    "korean",
-    "mediterranean",
-    "greek",
-    "italian",
-    "vegan",
-    "vegetarian",
-    "bbq",
-    "barbecue",
-    "steakhouse",
-    "seafood",
-    "sushi",
-    "ramen",
-    "burger",
-    "pizza",
-    "tacos",
-    "biryani",
-    "pho",
-    "dim sum",
-}
+from .clients import openai_client
 
-BUDGET_KEYWORDS = {
-    "cheap": "$",
-    "inexpensive": "$",
-    "affordable": "$",
-    "budget": "$",
-    "mid": "$$",
-    "mid-range": "$$",
-    "moderate": "$$",
-    "average": "$$",
-    "nice": "$$$",
-    "fancy": "$$$",
-    "expensive": "$$$",
-    "splurge": "$$$$",
-    "very expensive": "$$$$",
-    "luxury": "$$$$",
-}
+FIELD_SPECS = [
+    ("cuisine", "string"),
+    ("location", "string (cross streets or neighborhood)"),
+    ("budget", "string ($, $$, $$$, $$$$)"),
+    ("travel_mode", 'string ("walking" or "transit")'),
+    ("travel_minutes", "integer minutes of travel time"),
+    ("open_now", "boolean"),
+    ("open_until", "string time like 10PM"),
+]
 
-TRAVEL_MODE_KEYWORDS = {
-    "walk": "walking",
-    "walking": "walking",
-    "on foot": "walking",
-    "transit": "transit",
-    "train": "transit",
-    "bus": "transit",
-    "subway": "transit",
-    "metro": "transit",
-    "public transport": "transit",
-}
+FIELD_NAMES = [name for name, _ in FIELD_SPECS]
 
 FOLLOW_UP_PROMPTS = {
     "cuisine": "What kind of food are you craving?",
     "location": "Where should I search for restaurants?",
     "budget": "Do you have a budget in mind?",
     "travel_mode": "Would you prefer to walk or take transit?",
-    "travel_minutes": "How many minutes are you willing to travel?",
+    "travel_minutes": "How many minutes are you comfortable traveling?",
 }
+
+SYSTEM_INSTRUCTION = """
+Extract structured fields from the caller's request.
+
+Rules:
+- Always return a JSON object with exactly these keys: cuisine, location, budget, travel_mode, travel_minutes, open_now, open_until.
+- Use null for any value you cannot confirm from the request.
+- travel_minutes must be a number (convert written numbers like "ten" to the integer 10).
+- travel_mode must be "walking" or "transit".
+- budget should be $, $$, $$$, or $$$$.
+- Preserve the most recent caller preference even if they correct themselves.
+"""
 
 
 def extract_slots(
-    utterance: str, current: Dict[str, Optional[str]] | None = None
+    utterance: str, previous: Dict[str, Optional[str]] | None = None
 ) -> Dict[str, Optional[str]]:
-    """Extract basic slot values from a natural language utterance."""
-    slots = dict(current or {})
-    text = utterance.lower()
+    """
+    Use OpenAI to extract slot values from the latest utterance, taking prior
+    slot values into account.
+    """
 
-    cuisine = _extract_cuisine(text)
-    if cuisine:
-        slots["cuisine"] = cuisine
+    prior_context = json.dumps(previous or {}, indent=2)
 
-    location = _extract_location(text)
-    if location:
-        slots["location"] = location
+    completion = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": SYSTEM_INSTRUCTION},
+            {
+                "role": "user",
+                "content": (
+                    f"Caller said: {utterance}\n"
+                    f"Previous slot values (for reference only):\n{prior_context}\n"
+                    "Return the updated JSON now."
+                ),
+            },
+        ],
+    )
 
-    budget = _extract_budget(text)
-    if budget:
-        slots["budget"] = budget
+    raw_payload = completion.choices[0].message.content
+    parsed = json.loads(raw_payload)
+    return _normalise_slots(parsed)
 
-    travel_mode, minutes = _extract_travel(text)
-    if travel_mode:
-        slots["travel_mode"] = travel_mode
-    if minutes:
-        slots["travel_minutes"] = minutes
 
-    if "open now" in text:
-        slots["open_now"] = "true"
+def _normalise_slots(payload: Dict[str, object]) -> Dict[str, Optional[str]]:
+    normalised: Dict[str, Optional[str]] = {}
+    for field in FIELD_NAMES:
+        value = payload.get(field)
+        normalised[field] = _normalise_value(value)
+    return normalised
 
-    open_until = _extract_open_until(text)
-    if open_until:
-        slots["open_until"] = open_until
 
-    return slots
+def _normalise_value(value: object) -> Optional[str]:
+    if value in (None, "", "null"):
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(int(value)) if isinstance(value, float) else str(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    return json.dumps(value)
 
 
 def follow_up_for_missing(missing: list[str]) -> str:
     if not missing:
-        return (
-            "Thanks! I have everything I need. Let me find a few options for you now."
-        )
+        return "Thanks! I have everything I need. Let me find a few options for you now."
     next_slot = missing[0]
-    prompt = FOLLOW_UP_PROMPTS.get(
-        next_slot, "Could you tell me a little more so I can narrow it down?"
+    return FOLLOW_UP_PROMPTS.get(
+        next_slot, "Could you tell me a bit more so I can narrow it down?"
     )
-    if next_slot == "travel_minutes":
-        return "How many minutes are you comfortable traveling?"
-    return prompt
-
-
-def _extract_cuisine(text: str) -> Optional[str]:
-    for keyword in sorted(CUISINE_KEYWORDS, key=len, reverse=True):
-        if re.search(rf"\b{re.escape(keyword)}\b", text):
-            return keyword
-    if "food" in text:
-        match = re.search(r"(?:want|like|craving|need|for)\s+([a-z\s]+?)\s+food", text)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
-def _extract_location(text: str) -> Optional[str]:
-    patterns = [
-        r"(?:near|around|by|close to)\s+(?P<loc>[a-z0-9\s',.-]+)",
-        r"(?:in|at)\s+(?P<loc>[a-z0-9\s',.-]+)",
-        r"(?P<loc>downtown|midtown|uptown|manhattan|brooklyn|queens|soho|chelsea)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            location = match.group("loc").strip(" .,!?:")
-            if location:
-                return location
-    return None
-
-
-def _extract_budget(text: str) -> Optional[str]:
-    symbols = re.search(r"\$+\s*\$*", text)
-    if symbols:
-        return symbols.group().replace(" ", "")
-    amount = re.search(r"(?:under|below|around)\s+\$?(\d{2,3})", text)
-    if amount:
-        dollars = int(amount.group(1))
-        if dollars < 20:
-            return "$"
-        if dollars < 40:
-            return "$$"
-        if dollars < 70:
-            return "$$$"
-        return "$$$$"
-    for keyword, value in BUDGET_KEYWORDS.items():
-        if keyword in text:
-            return value
-    return None
-
-
-def _extract_travel(text: str) -> Tuple[Optional[str], Optional[str]]:
-    minutes_match = re.search(r"(\d{1,2})\s*(?:minute|min)", text)
-    minutes = minutes_match.group(1) if minutes_match else None
-
-    mode = None
-    for keyword, value in TRAVEL_MODE_KEYWORDS.items():
-        if keyword in text:
-            mode = value
-            break
-
-    return mode, minutes
-
-
-def _extract_open_until(text: str) -> Optional[str]:
-    match = re.search(r"(?:open until|until)\s+(\d{1,2}\s*(?:am|pm))", text)
-    if match:
-        return match.group(1).replace(" ", "")
-    return None
