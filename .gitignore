@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.so
+.DS_Store
+.env
+.env.*
+uv.lock
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
+*.log
+/.coverage
+coverage.xml
+docs/
